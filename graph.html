@@ -1,0 +1,186 @@
+<!--
+	You have to wait a minute or two because of the GitHub data having a rate limit.
+-->
+<html lang="en">
+	<head>
+		<meta charset="utf-8"/>
+		<title>GitHub vs StackOverflow</title>
+		<link href="http://fonts.googleapis.com/css?family=Open+Sans:600" rel="stylesheet" type="text/css"/>
+		<style>
+			* {
+				font-family: "Open Sans", sans-serif;
+			}
+			.dataPoint {
+				fill: green;
+			}
+			.incompleteDot {
+				fill: red;
+			}
+		</style>
+	</head>
+	<body>
+		<svg width="1000" height="650">
+			<g id="graph" transform="translate(125, 25)">
+				<text transform="translate(225, 600)">
+					GitHub
+				</text>
+				<text transform="translate(-100, 200) rotate(90)">
+					StackOverflow
+				</text>
+				<g id="xAxis" transform="translate(0, 500)">
+				</g>
+				<g id="yAxis" transform="translate(0, 0)">
+				</g>
+			</g>
+		</svg>
+	</body>
+	<script src="http://d3js.org/d3.v3.min.js" charset="utf-8"></script>
+	<!-- Also used d3 tutorials/API reference from the website for examples to go off of. -->
+	<script>
+		"use strict";
+		var allData = [];
+		var zoomLevel = 1;
+		
+		// When more data has been recieved, update the points on the graph.
+		function updateGraph() {
+			var githubValues = allData.map(function(d) { return d.github; }).filter(function(d) { return d != undefined; });
+			var stackoverflowValues = allData.map(function(d) { return d.stackoverflow; }).filter(function(d) { return d != undefined; });
+			
+			var xScale = d3.scale.linear()
+				.domain([d3.min(githubValues), (d3.max(githubValues) - d3.min(githubValues)) * zoomLevel + d3.min(githubValues)])
+				.rangeRound([0, 500])
+				.nice();
+			var yScale = d3.scale.linear()
+				.domain([d3.min(stackoverflowValues), (d3.max(stackoverflowValues) - d3.min(stackoverflowValues)) * zoomLevel + d3.min(stackoverflowValues)])
+				.rangeRound([500, 0])
+				.nice();
+			
+			d3.svg.axis().orient("bottom").scale(xScale)(d3.select("#xAxis"));
+			d3.svg.axis().orient("left").scale(yScale)(d3.select("#yAxis"));
+			d3.selectAll("#xAxis text").attr("transform", "rotate(90) translate(10, 0)").attr("style", null);
+			
+			var joined = d3.select("#graph")
+				.selectAll(".dataPoint")
+				.data(allData, function(d) { return d.language; })
+				.classed("incompleteDot", function(d) { return d.github == undefined || d.stackoverflow == undefined; });
+			joined.transition()
+				.duration(1000)
+				.attr("cx", function(d) { return d.github == undefined ? -10 : xScale(d.github); })
+				.attr("cy", function(d) { return d.stackoverflow == undefined ? 510 : yScale(d.stackoverflow); })
+			joined.enter()
+				.append("circle")
+					.classed("dataPoint", true)
+					.attr("cx", -10)
+					.attr("cy", 510)
+					.attr("r", 5)
+					.on("mouseover", function(d) {
+						d3.select("." + d.language.replace("++", "pp").replace("#", "s"))
+							.attr("visibility", "visible");
+					})
+					.on("mouseout", function(d) {
+						d3.select("." + d.language.replace("++", "pp").replace("#", "s"))
+							.attr("visibility", "hidden");
+					});
+		}
+		
+		// When data has been updated, update the pie charts that show on the side.
+		function createPies() {
+			var githubSum = allData.reduce(function(p, c) { return p + (c.github ? c.github : 0); }, 0);
+			var stackoverflowSum = allData.reduce(function(p, c) { return p + (c.stackoverflow ? c.stackoverflow : 0); }, 0);
+			var normalizedData = allData.filter(function(d) { return d.github && d.stackoverflow; }).map(function(d) { return { language: d.language, github: d.github, githubN: d.github / githubSum, stackoverflow: d.stackoverflow, stackoverflowN : d.stackoverflow / stackoverflowSum }; });
+			
+			var joined = d3.select("#graph")
+				.selectAll(".pie")
+				.data(normalizedData, function(d) { return d.language; })
+				.enter()
+					.append("g")
+						.attr("class", function(d) { return d.language.replace("++", "pp").replace("#", "s"); })
+						.attr("visibility", "hidden")
+						.classed("pie", true);
+			joined.append("path")
+				.classed("github", true)
+				.attr("transform", "translate(675, 125)")
+				.attr("fill", "blue")
+				.attr("stroke", "black")
+				.attr("d", function(d) {
+					return d3.svg.arc()
+						.innerRadius(0)
+						.outerRadius(100)
+						.startAngle(0)
+						.endAngle(Math.PI * 2 * d.githubN / (d.githubN + d.stackoverflowN))
+						();
+				});
+			joined.append("path")
+				.classed("stackoverflow", true)
+				.attr("transform", "translate(675, 125)")
+				.attr("fill", "red")
+				.attr("stroke", "black")
+				.attr("d", function(d) {
+					return d3.svg.arc()
+						.innerRadius(0)
+						.outerRadius(100)
+						.startAngle(Math.PI * 2 * d.githubN / (d.githubN + d.stackoverflowN))
+						.endAngle(Math.PI * 2)
+						();
+				});
+			joined.append("text")
+				.attr("transform", "translate(575, 275)")
+				.text(function(d) { return "Language: " + d.language; });
+			joined.append("text")
+				.attr("transform", "translate(575, 300)")
+				.attr("fill", "blue")
+				.text(function(d) { return "GitHub: " + d.github; });
+			joined.append("text")
+				.attr("transform", "translate(575, 325)")
+				.attr("fill", "red")
+				.text(function(d) { return "StackOverflow: " + d.stackoverflow; });
+			joined.append("text")
+				.attr("transform", "translate(575, 350)")
+				.text("Pie chart data is normalized.");
+		}
+		
+		// When the page loads, start the workers to get the data from GitHub and StackOverflow.
+		window.addEventListener("load", function() {
+			var githubWorker = new Worker("github_worker.js");
+			var stackoverflowWorker = new Worker("stackoverflow_worker.js");
+			
+			// Currying
+			function onSentData(source) {
+				// Workers return a string containing the data that was given. Function parses the data and updates allData, as well as the visualizations.
+				return function(sentData) {
+					var sentDataArr = sentData.data.split(":::");
+					var sentDataLang = sentDataArr[0];
+					var sentDataCount = parseInt(sentDataArr[1]);
+					var existingData = allData.filter(function(d) {
+						return d.language == sentDataLang;
+					});
+					if(existingData.length == 0) {
+						var newData = { language : sentDataLang };
+						newData[source] = sentDataCount;
+						allData.push(newData);
+					} else {
+						existingData[0][source] = sentDataCount;
+					}
+					updateGraph();
+					createPies();
+				};
+			}
+			
+			githubWorker.addEventListener("message", onSentData("github"));
+			stackoverflowWorker.addEventListener("message", onSentData("stackoverflow"));
+			
+			// Zoom in and out upon double-click.
+			document.querySelector("svg").addEventListener("dblclick", function(e) {
+				if(e.shiftKey) {
+					zoomLevel *= 2;
+				} else {
+					zoomLevel /= 2;
+				}
+				updateGraph();
+			});
+			
+			githubWorker.postMessage("");
+			stackoverflowWorker.postMessage("");
+		});
+	</script>
+</html>
